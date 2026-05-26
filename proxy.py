@@ -1,4 +1,4 @@
-import base64, os, http.server, urllib.request
+import base64, os, http.server, urllib.request, urllib.error
 
 PASSWORD = os.environ['PASSWORD']
 TARGET = os.environ.get('PROXY_TARGET', 'http://hermes-agent-v2:8080')
@@ -28,12 +28,21 @@ class Proxy(http.server.BaseHTTPRequestHandler):
                 TARGET + self.path, data=body, headers=req_headers, method=self.command
             )
             resp = urllib.request.urlopen(req)
+            body = resp.read()
             self.send_response(resp.status)
             for k, v in resp.headers.items():
                 if k.lower() not in ('transfer-encoding', 'connection'):
                     self.send_header(k, v)
             self.end_headers()
-            self.wfile.write(resp.read())
+            self.wfile.write(body)
+        except urllib.error.HTTPError as e:
+            body = e.read()
+            self.send_response(e.code)
+            for k, v in e.headers.items():
+                if k.lower() not in ('transfer-encoding', 'connection'):
+                    self.send_header(k, v)
+            self.end_headers()
+            self.wfile.write(body)
         except Exception as e:
             self.send_response(502)
             self.end_headers()
@@ -44,7 +53,7 @@ class Proxy(http.server.BaseHTTPRequestHandler):
             return self.require_auth()
         self.proxy_request()
 
-    do_POST = do_PUT = do_DELETE = do_PATCH = do_GET
+    do_POST = do_PUT = do_DELETE = do_PATCH = do_OPTIONS = do_GET
 
 if __name__ == '__main__':
     httpd = http.server.HTTPServer(('0.0.0.0', PORT), Proxy)
