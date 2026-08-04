@@ -22,6 +22,9 @@ class Proxy(http.server.BaseHTTPRequestHandler):
     def require_auth(self):
         self.send_response(401)
         self.send_header('WWW-Authenticate', 'Basic realm="Hermes"')
+        # protocol_version=HTTP/1.1 keeps the connection alive — without an
+        # explicit length the client can't tell where the 401 ends and hangs.
+        self.send_header('Content-Length', '0')
         self.end_headers()
 
     def proxy_request(self):
@@ -53,9 +56,11 @@ class Proxy(http.server.BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
         except Exception as e:
+            body = str(e).encode()
             self.send_response(502)
+            self.send_header('Content-Length', str(len(body)))
             self.end_headers()
-            self.wfile.write(str(e).encode())
+            self.wfile.write(body)
 
     def proxy_websocket(self):
         """Tunnel a WebSocket upgrade through to the upstream.
