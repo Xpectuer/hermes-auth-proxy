@@ -14,7 +14,8 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  IMAGE: ghcr.io/xpectuer/hermes-auth-proxy
+  IMAGE: ghcr.io/xpectuer/hermes-auth-proxy-sealos
+  DEPLOY_IMAGE: harbor.bja.sealos.run/ns-rdl1tl4m/hermes-auth-proxy
   NAMESPACE: ns-rdl1tl4m
   APP: hermes-auth-m6n6
 
@@ -39,6 +40,22 @@ jobs:
           labels: org.opencontainers.image.source=https://github.com/Xpectuer/hermes-auth-proxy
           cache-from: type=gha
           cache-to: type=gha,mode=max
+      - name: Log in to in-region Harbor
+        uses: docker/login-action@v3
+        with:
+          registry: harbor.bja.sealos.run
+          username: ${{ secrets.SEALOS_REGISTRY_USERNAME }}
+          password: ${{ secrets.SEALOS_REGISTRY_PASSWORD }}
+      - name: Copy the verified image into Harbor
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/crane.tar.gz"
+          curl --fail --silent --show-error --location \
+            https://github.com/google/go-containerregistry/releases/download/v0.22.1/go-containerregistry_Linux_x86_64.tar.gz \
+            --output "$archive"
+          printf '0ab7a1d6932a213aed964ce97666c3077fe691c8606413674a8b3e0b9ec4cda0  %s\n' "$archive" | sha256sum --check -
+          tar -xzf "$archive" -C "$RUNNER_TEMP" crane
+          "$RUNNER_TEMP/crane" copy --jobs=1 "$IMAGE:$GITHUB_SHA" "$DEPLOY_IMAGE:$GITHUB_SHA"
       - uses: azure/setup-kubectl@v4
         with:
           version: v1.32.3
@@ -52,7 +69,7 @@ jobs:
           umask 077
           printf '%s' "$SEALOS_KUBECONFIG" > "$KUBECONFIG"
           trap 'rm -f "$KUBECONFIG"' EXIT
-          kubectl -n "$NAMESPACE" set image "deployment/$APP" "$APP=$IMAGE:$GITHUB_SHA"
+          kubectl -n "$NAMESPACE" set image "deployment/$APP" "$APP=$DEPLOY_IMAGE:$GITHUB_SHA"
           kubectl -n "$NAMESPACE" rollout status "deployment/$APP" --timeout=600s
           test -n "$APP_URL"
           status=$(curl --silent --show-error --retry 8 --retry-all-errors --retry-delay 5 --max-time 30 --output /dev/null --write-out '%{http_code}' "$APP_URL/")
